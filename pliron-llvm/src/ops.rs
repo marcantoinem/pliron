@@ -4215,8 +4215,20 @@ impl Verify for FCmpOp {
         if self.get_attr_fcmp_predicate(ctx).is_none() {
             verify_err!(loc.clone(), FCmpOpVerifyErr::PredAttrErr)?
         }
-
         let opd_ty = self.operand_type_i(ctx, I::<0>.into()).deref(ctx);
+
+        let mut elem_res_ty = self.result_type(ctx).deref(ctx);
+        if let Some(vec_ty) = elem_res_ty.downcast_ref::<VectorType>() {
+            elem_res_ty = vec_ty.elem_type().deref(ctx);
+        }
+
+        let Some(ty) = elem_res_ty.downcast_ref::<IntegerType>() else {
+            return verify_err!(loc, ICmpOpVerifyErr::ResultNotBool);
+        };
+        if ty.width() != 1 {
+            return verify_err!(loc, ICmpOpVerifyErr::ResultNotBool);
+        }
+
         if let Some(vector) = opd_ty.downcast_ref::<VectorType>() {
             if !type_impls::<dyn FloatTypeInterface>(&*vector.elem_type().deref(ctx)) {
                 return verify_err!(loc, FCmpOpVerifyErr::IncorrectOperandsType);
