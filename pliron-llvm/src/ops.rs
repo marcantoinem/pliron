@@ -4215,25 +4215,33 @@ impl Verify for FCmpOp {
         if self.get_attr_fcmp_predicate(ctx).is_none() {
             verify_err!(loc.clone(), FCmpOpVerifyErr::PredAttrErr)?
         }
-        let opd_ty = self.operand_type_i(ctx, I::<0>.into()).deref(ctx);
 
-        let mut elem_res_ty = self.result_type(ctx).deref(ctx);
-        if let Some(vec_ty) = elem_res_ty.downcast_ref::<VectorType>() {
-            elem_res_ty = vec_ty.elem_type().deref(ctx);
+        let mut res_ty = self.result_type(ctx);
+        let mut vec_num_elements = None;
+        if let Some(vec_ty) = res_ty.deref(ctx).downcast_ref::<VectorType>() {
+            res_ty = vec_ty.elem_type();
+            vec_num_elements = Some(vec_ty.num_elements());
         }
-
-        let Some(ty) = elem_res_ty.downcast_ref::<IntegerType>() else {
-            return verify_err!(loc, ICmpOpVerifyErr::ResultNotBool);
+        let res_ty = res_ty.deref(ctx);
+        let Some(res_ty) = res_ty.downcast_ref::<IntegerType>() else {
+            return verify_err!(loc, FCmpOpVerifyErr::ResultNotBool);
         };
-        if ty.width() != 1 {
-            return verify_err!(loc, ICmpOpVerifyErr::ResultNotBool);
+        if res_ty.width() != 1 {
+            return verify_err!(loc, FCmpOpVerifyErr::ResultNotBool);
         }
 
-        if let Some(vector) = opd_ty.downcast_ref::<VectorType>() {
-            if !type_impls::<dyn FloatTypeInterface>(&*vector.elem_type().deref(ctx)) {
-                return verify_err!(loc, FCmpOpVerifyErr::IncorrectOperandsType);
+        let mut opd_ty = self.operand_type_i(ctx, I::<0>.into());
+        if let Some(vec_ty) = opd_ty.deref(ctx).downcast_ref::<VectorType>() {
+            opd_ty = vec_ty.elem_type();
+            // Ensure that the number of elements matches the result type's number of elements.
+            if vec_num_elements.is_none_or(|num_elements| vec_ty.num_elements() != num_elements) {
+                return verify_err!(loc, FCmpOpVerifyErr::MismatchedVectorNumElements);
             }
-        } else if !(type_impls::<dyn FloatTypeInterface>(&*opd_ty)) {
+        } else if vec_num_elements.is_some() {
+            return verify_err!(loc, FCmpOpVerifyErr::MismatchedVectorNumElements);
+        }
+        let opd_ty = opd_ty.deref(ctx);
+        if !type_impls::<dyn FloatTypeInterface>(&*opd_ty) {
             return verify_err!(loc, FCmpOpVerifyErr::IncorrectOperandsType);
         }
 
@@ -4243,12 +4251,14 @@ impl Verify for FCmpOp {
 
 #[derive(Error, Debug)]
 pub enum FCmpOpVerifyErr {
-    #[error("Result must be 1-bit integer (bool)")]
+    #[error("Result must be (possibly vector of) 1-bit integer (bool)")]
     ResultNotBool,
-    #[error("Operand must be floating point type or vector of floating point")]
+    #[error("Operand must be (possibly vector of) floating point types")]
     IncorrectOperandsType,
     #[error("Missing or incorrect predicate attribute")]
     PredAttrErr,
+    #[error("Vector operand and result types must have the same number of elements")]
+    MismatchedVectorNumElements,
 }
 
 /// All LLVM intrinsic calls are represented by this [Op].
