@@ -195,7 +195,8 @@ fn prune_candidates(candidates: &mut Vec<AllocCandidate>, ctx: &Context) {
 ///
 /// Returns:
 /// - `live_in`: blocks where the candidate's value is live-in.
-/// - `defining_blocks`: blocks that contain a store defining the candidate.
+/// - `defining_blocks`: blocks that contain a store defining the candidate,
+///   plus the block holding the allocation itself.
 fn compute_candidate_live_in_and_defining_blocks(
     ctx: &Context,
     cand: &AllocCandidate,
@@ -213,13 +214,23 @@ fn compute_candidate_live_in_and_defining_blocks(
             user_blocks.insert(block);
         }
     }
+    // The allocation defines the slot at its own position, so scan its block too.
+    if let Some(alloc_block) = cand.alloc_op.deref(ctx).get_parent_block() {
+        user_blocks.insert(alloc_block);
+    }
 
-    // A block is a defining block if it has any store to this candidate.
+    // A block is a defining block if it has any store to this candidate or holds the allocation.
     // A block seeds liveness if it has a load/eliminatable use before the first store.
     for block in user_blocks {
         let mut has_store = false;
         let mut load_before_store = false;
         for op in block.deref(ctx).iter(ctx) {
+            // Nothing flows in from a predecessor, so liveness must stop here; otherwise an
+            // allocation inside a loop gets phis in blocks it doesn't dominate.
+            if op == cand.alloc_op {
+                has_store = true;
+                continue;
+            }
             let op_obj = Operation::get_op_dyn(op, ctx);
             let Some(op_promotable) = op_cast::<dyn PromotableOpInterface>(op_obj.as_ref()) else {
                 continue;

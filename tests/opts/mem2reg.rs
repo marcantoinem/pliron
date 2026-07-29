@@ -651,6 +651,62 @@ fn mem2reg_not_promoted_for_interface_declared_non_promotable_use() -> Result<()
 }
 
 #[test]
+fn mem2reg_alloca_inside_loop_body() -> Result<()> {
+    // An allocation inside a loop body, conditionally stored to: unless the allocation acts
+    // as a definition, liveness escapes the loop and the default value gets materialized
+    // next to the allocation but used in the entry block, which its def doesn't dominate.
+    let input = r#"
+    llvm.func @f: llvm.func <builtin.integer i64 (builtin.integer i64, builtin.integer i1) variadic = false> [] {
+      ^entry(n: builtin.integer i64, cond: builtin.integer i1):
+      size = builtin.constant <builtin.integer <1: i64>> : builtin.integer i64;
+      zero = builtin.constant <builtin.integer <0: i64>> : builtin.integer i64;
+      one = builtin.constant <builtin.integer <1: i64>> : builtin.integer i64;
+      llvm.br ^header(zero)
+
+      ^header(i: builtin.integer i64):
+      continue_loop = llvm.icmp i <ULT> n : builtin.integer i1;
+      llvm.cond_br if continue_loop ^body() else ^exit()
+
+      ^body():
+      alloc = llvm.alloca [builtin.integer i64 x size] : llvm.ptr (0);
+      llvm.cond_br if cond ^then() else ^merge()
+
+      ^then():
+      v = builtin.constant <builtin.integer <42: i64>> : builtin.integer i64;
+      llvm.store *alloc <- v;
+      llvm.br ^merge()
+
+      ^merge():
+      out = llvm.load alloc : builtin.integer i64;
+      next_i = llvm.add i, one <{nsw=false,nuw=false}> : builtin.integer i64;
+      llvm.br ^header(next_i)
+
+      ^exit():
+      llvm.return zero
+    }
+  "#;
+
+    let (status, _before, after) = run_mem2reg(input)?;
+    assert_eq!(status, IRStatus::Changed);
+    assert!(!after.contains("llvm.alloca"));
+    assert!(!after.contains("llvm.store"));
+    assert!(!after.contains("llvm.load"));
+    // The uninitialized path through ^body needs a default value.
+    assert!(after.contains("llvm.poison"));
+    // Only ^merge needs a phi. The loop header must not be given one: the slot is
+    // freshly allocated on every iteration, so nothing is carried across the back edge.
+    let header_line = after
+        .lines()
+        .find(|line| line.trim_start().starts_with("^header"))
+        .expect("loop header block should still be present");
+    assert!(
+        !header_line.contains(','),
+        "loop header should not have gained a block argument: {header_line}"
+    );
+    Ok(())
+}
+
+#[test]
 fn mem2reg_not_promoted_when_phi_pred_has_non_branch_successor_terminator() -> Result<()> {
     // Interface-specific CFG corner case: a predecessor reaches the merge block with a
     // successor-bearing terminator that does not implement BranchOpInterface.
