@@ -1026,7 +1026,11 @@ pub fn llvm_const_string_in_context(
 
 /// LLVMIsConstantString
 pub fn llvm_is_constant_string(val: LLVMValue) -> bool {
-    unsafe { LLVMIsConstantString(val.into()).to_bool() }
+    matches!(
+        llvm_get_value_kind(val),
+        LLVMValueKind::LLVMConstantDataArrayValueKind
+            | LLVMValueKind::LLVMConstantDataVectorValueKind
+    ) && unsafe { LLVMIsConstantString(val.into()).to_bool() }
 }
 
 /// LLVMGetAsString
