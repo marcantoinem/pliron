@@ -171,8 +171,10 @@ use alloc::{
     vec::Vec,
 };
 use downcast_rs::{Downcast, impl_downcast};
+use thiserror::Error;
 
 use crate::{
+    arg_error_noloc,
     context::{Context, Ptr},
     identifier::Identifier,
     irbuild::IRStatus,
@@ -181,7 +183,8 @@ use crate::{
     printable::Printable,
     result::Result,
     std_deps::{
-        fs::write,
+        self,
+        fs::{create_dir_all, write},
         hash::{FxHashMap, FxHashSet},
         path::PathBuf,
     },
@@ -487,13 +490,9 @@ pub trait PassManager {
 
         if pre_print_pass {
             log::info!("IR before pass {}:\n{}", pass.name(), op.disp(ctx));
-            if let Some(path) = &ir_printing_dir {
-                let path = path.join(alloc::format!(
-                    "{}-before-{}.plir",
-                    pass_run_count,
-                    pass.name()
-                ));
-                write(path, op.disp(ctx).to_string().as_bytes()).unwrap();
+            if let Some(dir) = &ir_printing_dir {
+                let filename = alloc::format!("{}-before-{}.plir", pass_run_count, pass.name());
+                print_op_to_file(ctx, dir, filename, op)?;
             }
         }
         if pre_verify_pass {
@@ -520,13 +519,9 @@ pub trait PassManager {
         }
         if post_print_pass {
             log::info!("IR after pass {}:\n{}", pass.name(), op.disp(ctx));
-            if let Some(path) = &ir_printing_dir {
-                let path = path.join(alloc::format!(
-                    "{}-after-{}.plir",
-                    pass_run_count,
-                    pass.name()
-                ));
-                write(path, op.disp(ctx).to_string().as_bytes()).unwrap();
+            if let Some(dir) = &ir_printing_dir {
+                let filename = alloc::format!("{}-after-{}.plir", pass_run_count, pass.name());
+                print_op_to_file(ctx, dir, filename, op)?;
             }
         }
         if post_verify_pass {
@@ -556,6 +551,7 @@ pub struct PMConfig {
     /// If true, print the IR after running each pass.
     pub print_after_all: bool,
     /// Directory to place printed IR files before and after passes.
+    /// The directory is created (including parents) if it doesn't exist.
     pub ir_printing_dir: Option<PathBuf>,
     /// Set of pass names for which to print the IR before execution.
     pub print_before: FxHashSet<String>,
@@ -742,4 +738,27 @@ impl AnalysisManager {
     pub fn pm_data_mut(&mut self) -> &mut PMData {
         &mut self.pm_data
     }
+}
+
+#[derive(Debug, Error)]
+pub enum PrintOpToFileErr {
+    #[error("Failed to write to file {}: {}", .0.display(), .1)]
+    FileWriteError(std_deps::path::PathBuf, std_deps::io::Error),
+    #[error("Failed to create directory {}: {}", .0.display(), .1)]
+    DirCreateError(std_deps::path::PathBuf, std_deps::io::Error),
+}
+
+/// Print `op` to file `dir/file_name`.
+/// Creates `dir` (including parents) if it doesn't exist.
+fn print_op_to_file(
+    ctx: &Context,
+    dir: &PathBuf,
+    file_name: String,
+    op: Ptr<Operation>,
+) -> Result<()> {
+    create_dir_all(dir)
+        .map_err(|err| arg_error_noloc!(PrintOpToFileErr::DirCreateError(dir.clone(), err)))?;
+    let path = dir.join(file_name);
+    write(&path, op.disp(ctx).to_string().as_bytes())
+        .map_err(|err| arg_error_noloc!(PrintOpToFileErr::FileWriteError(path, err)))
 }
