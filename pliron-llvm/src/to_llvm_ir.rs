@@ -65,11 +65,12 @@ use crate::{
         llvm_build_sub, llvm_build_switch, llvm_build_trunc, llvm_build_udiv, llvm_build_uitofp,
         llvm_build_unreachable, llvm_build_urem, llvm_build_va_arg, llvm_build_xor,
         llvm_build_zext, llvm_can_value_use_fast_math_flags, llvm_clear_insertion_position,
-        llvm_const_int, llvm_const_null, llvm_const_real, llvm_const_vector, llvm_delete_global,
-        llvm_double_type_in_context, llvm_float_type_in_context, llvm_function_type,
-        llvm_get_inline_asm, llvm_get_named_function, llvm_get_param,
-        llvm_get_pointer_address_space, llvm_get_poison, llvm_get_sync_scope_id, llvm_get_undef,
-        llvm_half_type_in_context, llvm_int_type_in_context, llvm_is_a, llvm_lookup_intrinsic_id,
+        llvm_const_int, llvm_const_null, llvm_const_real, llvm_const_string_in_context,
+        llvm_const_vector, llvm_delete_global, llvm_double_type_in_context,
+        llvm_float_type_in_context, llvm_function_type, llvm_get_inline_asm,
+        llvm_get_named_function, llvm_get_param, llvm_get_pointer_address_space, llvm_get_poison,
+        llvm_get_sync_scope_id, llvm_get_undef, llvm_half_type_in_context,
+        llvm_int_type_in_context, llvm_is_a, llvm_lookup_intrinsic_id,
         llvm_pointer_type_in_context, llvm_position_builder_at_end, llvm_replace_all_uses_with,
         llvm_scalable_vector_type, llvm_set_alignment, llvm_set_atomic_sync_scope_id,
         llvm_set_fast_math_flags, llvm_set_initializer, llvm_set_linkage, llvm_set_nneg,
@@ -165,6 +166,8 @@ pub enum ToLLVMErr {
     InsertExtractValueIndices,
     #[error("GlobalOp Initializer region does not terminate with a return with value")]
     GlobalOpInitializerRegionBadReturn,
+    #[error("GlobalOp initializer attribute {0} does not denote a supported constant")]
+    UnsupportedGlobalInitializer(String),
     #[error("Cannot evaluate value to a constant")]
     CannotEvaluateToConst,
     #[error("BlockAddressOp refers to missing block tag {1} in function {0}")]
@@ -2109,6 +2112,41 @@ trait ToLLVMConstValue {
     }
 }
 
+/// Materialize an [Attribute] that holds a constant value as an LLVM constant.
+///
+/// Returns `Ok(None)` for attributes that don't denote a constant we know how to build, so
+/// that callers can report an error that fits their context.
+fn convert_const_attr(
+    ctx: &Context,
+    llvm_ctx: &LLVMContext,
+    cctx: &mut ConversionContext,
+    attr: &dyn Attribute,
+) -> Result<Option<LLVMValue>> {
+    if let Some(int_val) = attr.downcast_ref::<IntegerAttr>() {
+        let int_ty = int_val.get_type();
+        let int_ty_llvm = convert_type(ctx, llvm_ctx, cctx, int_ty.into())?;
+        let ap_int_val: APInt = int_val.clone().into();
+        Ok(Some(llvm_const_int(
+            int_ty_llvm,
+            ap_int_val.to_u64(),
+            false,
+        )))
+    } else if let Some(float_val) = attr_cast::<dyn FloatAttrToFP64>(attr) {
+        let float_ty = float_val.get_type(ctx);
+        let float_ty_llvm = convert_type(ctx, llvm_ctx, cctx, float_ty)?;
+        Ok(Some(llvm_const_real(float_ty_llvm, float_val.to_fp64())))
+    } else if let Some(str_val) = attr.downcast_ref::<StringAttr>() {
+        // NUL-terminated, so this has type `[len + 1 x i8]`.
+        Ok(Some(llvm_const_string_in_context(
+            llvm_ctx,
+            str_val.as_str(),
+            false,
+        )))
+    } else {
+        Ok(None)
+    }
+}
+
 #[op_interface_impl]
 impl ToLLVMConstValue for ConstantOp {
     fn convert(
@@ -2119,19 +2157,9 @@ impl ToLLVMConstValue for ConstantOp {
     ) -> Result<LLVMValue> {
         let op = self.get_operation().deref(ctx);
         let value = self.get_value(ctx);
-        if let Some(int_val) = value.downcast_ref::<IntegerAttr>() {
-            let int_ty = int_val.get_type();
-            let int_ty_llvm = convert_type(ctx, llvm_ctx, cctx, int_ty.into())?;
-            let ap_int_val: APInt = int_val.clone().into();
-            let const_val = llvm_const_int(int_ty_llvm, ap_int_val.to_u64(), false);
-            Ok(const_val)
-        } else if let Some(float_val) = attr_cast::<dyn FloatAttrToFP64>(&*value) {
-            let float_ty = float_val.get_type(ctx);
-            let float_ty_llvm = convert_type(ctx, llvm_ctx, cctx, float_ty)?;
-            let const_val = llvm_const_real(float_ty_llvm, float_val.to_fp64());
-            Ok(const_val)
-        } else {
-            input_err!(op.loc(), ToLLVMErr::ConstOpNotIntOrFloat)
+        match convert_const_attr(ctx, llvm_ctx, cctx, &*value)? {
+            Some(const_val) => Ok(const_val),
+            None => input_err!(op.loc(), ToLLVMErr::ConstOpNotIntOrFloat),
         }
     }
 }
@@ -2393,8 +2421,15 @@ fn convert_global_initializer(
     cctx: &mut ConversionContext,
     global_op: GlobalOp,
 ) -> Result<Option<LLVMValue>> {
-    if let Some(_initializer) = global_op.get_initializer_value(ctx) {
-        todo!()
+    if let Some(initializer) = global_op.get_initializer_value(ctx) {
+        let initializer_val =
+            convert_const_attr(ctx, llvm_ctx, cctx, &*initializer)?.ok_or_else(|| {
+                input_error!(
+                    global_op.loc(ctx),
+                    ToLLVMErr::UnsupportedGlobalInitializer(initializer.disp(ctx).to_string())
+                )
+            })?;
+        return Ok(Some(initializer_val));
     }
 
     if let Some(init_block) = global_op.get_initializer_block(ctx) {
