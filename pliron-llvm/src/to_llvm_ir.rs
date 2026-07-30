@@ -385,7 +385,7 @@ impl ToLLVMType for StructType {
     ) -> Result<LLVMType> {
         if self.is_opaque() {
             let name = self.name().expect("Opaqaue struct must have a name");
-            Ok(llvm_struct_create_named(llvm_ctx, name.as_str()))
+            Ok(llvm_struct_create_named(llvm_ctx, name.as_ref()))
         } else {
             let field_types = self
                 .fields()
@@ -395,7 +395,7 @@ impl ToLLVMType for StructType {
                 match cctx.structs_map.entry(name) {
                     hash_map::Entry::Occupied(entry) => Ok(*entry.get()),
                     hash_map::Entry::Vacant(entry) => {
-                        let str_ty = llvm_struct_create_named(llvm_ctx, entry.key());
+                        let str_ty = llvm_struct_create_named(llvm_ctx, entry.key().as_ref());
                         llvm_struct_set_body(str_ty, &field_types, false);
                         entry.insert(str_ty);
                         Ok(str_ty)
@@ -529,7 +529,7 @@ macro_rules! to_llvm_value_int_bin_op {
                     &cctx.builder,
                     lhs,
                     rhs,
-                    &self.get_result(ctx).unique_name(ctx),
+                    self.get_result(ctx).unique_name(ctx).as_ref(),
                 ))
             }
         }
@@ -564,7 +564,7 @@ impl ToLLVMValue for AllocaOp {
             &cctx.builder,
             ty,
             size,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         if let Some(alignment) = self.alignment(ctx) {
             llvm_set_alignment(alloca_op, alignment);
@@ -587,7 +587,7 @@ impl ToLLVMValue for BitcastOp {
             &cctx.builder,
             arg,
             ty,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         Ok(bitcast_op)
     }
@@ -607,7 +607,7 @@ impl ToLLVMValue for AddrSpaceCastOp {
             &cctx.builder,
             arg,
             ty,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         Ok(addrspacecast_op)
     }
@@ -797,7 +797,7 @@ impl ToLLVMValue for LoadOp {
             &cctx.builder,
             pointee_ty,
             ptr,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         if let Some(alignment) = self.alignment(ctx) {
             llvm_set_alignment(load_op, alignment);
@@ -974,7 +974,12 @@ impl ToLLVMValue for AtomicLoadOp {
         };
         let pointee_ty = convert_type(ctx, llvm_ctx, cctx, result_val.get_type(ctx))?;
         let ptr = convert_value_operand(cctx, ctx, &ptr_opd)?;
-        let load = llvm_build_load2(&cctx.builder, pointee_ty, ptr, &result_val.unique_name(ctx));
+        let load = llvm_build_load2(
+            &cctx.builder,
+            pointee_ty,
+            ptr,
+            result_val.unique_name(ctx).as_ref(),
+        );
         let ordering = convert_atomic_ordering(
             &self
                 .get_attr_llvm_ld_ordering(ctx)
@@ -1106,7 +1111,7 @@ impl ToLLVMValue for ICmpOp {
             predicate,
             lhs,
             rhs,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         Ok(icmp_op)
     }
@@ -1181,7 +1186,7 @@ impl ToLLVMValue for IntToPtrOp {
             &cctx.builder,
             arg,
             ty,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         Ok(inttoptr_op)
     }
@@ -1202,7 +1207,7 @@ impl ToLLVMValue for PtrToIntOp {
             &cctx.builder,
             arg,
             ty,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         Ok(ptrtoint_op)
     }
@@ -1303,8 +1308,11 @@ impl ToLLVMValue for FreezeOp {
     ) -> Result<LLVMValue> {
         let op = self.get_operation().deref(ctx);
         let arg = convert_value_operand(cctx, ctx, &op.get_operand(0))?;
-        let freeze_op =
-            llvm_build_freeze(&cctx.builder, arg, &self.get_result(ctx).unique_name(ctx));
+        let freeze_op = llvm_build_freeze(
+            &cctx.builder,
+            arg,
+            self.get_result(ctx).unique_name(ctx).as_ref(),
+        );
         Ok(freeze_op)
     }
 }
@@ -1324,10 +1332,12 @@ impl ToLLVMValue for CallOp {
             .collect::<Result<_>>()?;
         let ty = convert_type(ctx, llvm_ctx, cctx, self.callee_type(ctx))?;
         let res = self.get_result(ctx);
+        let unique_name;
         let name = if res.get_type(ctx).deref(ctx).is::<VoidType>() {
             ""
         } else {
-            &res.unique_name(ctx)
+            unique_name = res.unique_name(ctx);
+            unique_name.as_ref()
         };
         let callee = match self.callee(ctx) {
             CallOpCallable::Direct(callee_sym) => {
@@ -1387,10 +1397,12 @@ impl ToLLVMValue for CallIntrinsicOp {
             .unwrap_or_else(|| llvm_add_function(cctx.cur_llvm_module, &intrinsic_name, fn_ty));
 
         let res = self.get_result(ctx);
+        let unique_name;
         let name = if res.get_type(ctx).deref(ctx).is::<VoidType>() {
             ""
         } else {
-            &res.unique_name(ctx)
+            unique_name = res.unique_name(ctx);
+            unique_name.as_ref()
         };
 
         let intrinsic_op = llvm_build_call2(&cctx.builder, fn_ty, intrinsic_fn, &args, name);
@@ -1420,7 +1432,7 @@ impl ToLLVMValue for SExtOp {
             &cctx.builder,
             arg,
             ty,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         Ok(sext_op)
     }
@@ -1441,7 +1453,7 @@ impl ToLLVMValue for ZExtOp {
             &cctx.builder,
             arg,
             ty,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         // The built value may not even be an instruction, but a folded constant.
         if llvm_is_a::instruction(zext_op) {
@@ -1467,7 +1479,7 @@ impl ToLLVMValue for TruncOp {
             &cctx.builder,
             arg,
             ty,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         Ok(trunc_op)
     }
@@ -1502,7 +1514,7 @@ impl ToLLVMValue for GetElementPtrOp {
             src_elem_type,
             base,
             &indices,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         Ok(gep_op)
     }
@@ -1528,7 +1540,7 @@ impl ToLLVMValue for InsertValueOp {
             base,
             value,
             indices[0],
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         Ok(insert_op)
     }
@@ -1552,7 +1564,7 @@ impl ToLLVMValue for ExtractValueOp {
             &cctx.builder,
             base,
             indices[0],
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         Ok(extract_op)
     }
@@ -1574,7 +1586,7 @@ impl ToLLVMValue for InsertElementOp {
             base,
             value,
             index,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         Ok(insert_op)
     }
@@ -1594,7 +1606,7 @@ impl ToLLVMValue for ExtractElementOp {
             &cctx.builder,
             base,
             index,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         Ok(extract_op)
     }
@@ -1628,7 +1640,7 @@ impl ToLLVMValue for ShuffleVectorOp {
             vec1,
             vec2,
             mask,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         Ok(shuffle_op)
     }
@@ -1651,7 +1663,7 @@ impl ToLLVMValue for SelectOp {
             cond,
             true_val,
             false_val,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         // The built value may not even be an instruction, but a folded constant.
         if let Some(fmf) = self.get_attr_llvm_select_fast_math_flags(ctx)
@@ -1679,7 +1691,7 @@ impl ToLLVMValue for FAddOp {
             &cctx.builder,
             lhs,
             rhs,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         // The built value may not even be an instruction, but a folded constant.
         if llvm_can_value_use_fast_math_flags(inst) {
@@ -1706,7 +1718,7 @@ impl ToLLVMValue for FSubOp {
             &cctx.builder,
             lhs,
             rhs,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         // The built value may not even be an instruction, but a folded constant.
         if llvm_can_value_use_fast_math_flags(inst) {
@@ -1733,7 +1745,7 @@ impl ToLLVMValue for FMulOp {
             &cctx.builder,
             lhs,
             rhs,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         // The built value may not even be an instruction, but a folded constant.
         if llvm_can_value_use_fast_math_flags(inst) {
@@ -1760,7 +1772,7 @@ impl ToLLVMValue for FDivOp {
             &cctx.builder,
             lhs,
             rhs,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         // The built value may not even be an instruction, but a folded constant.
         if llvm_can_value_use_fast_math_flags(inst) {
@@ -1787,7 +1799,7 @@ impl ToLLVMValue for FRemOp {
             &cctx.builder,
             lhs,
             rhs,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         // The built value may not even be an instruction, but a folded constant.
         if llvm_can_value_use_fast_math_flags(inst) {
@@ -1815,7 +1827,7 @@ impl ToLLVMValue for FCmpOp {
             predicate,
             lhs,
             rhs,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         // The built value may not even be an instruction, but a folded constant.
         if llvm_can_value_use_fast_math_flags(fcmp_op) {
@@ -1836,7 +1848,11 @@ impl ToLLVMValue for FNegOp {
     ) -> Result<LLVMValue> {
         let op = self.get_operation().deref(ctx);
         let arg = convert_value_operand(cctx, ctx, &op.get_operand(0))?;
-        let inst = llvm_build_fneg(&cctx.builder, arg, &self.get_result(ctx).unique_name(ctx));
+        let inst = llvm_build_fneg(
+            &cctx.builder,
+            arg,
+            self.get_result(ctx).unique_name(ctx).as_ref(),
+        );
         // The built value may not even be an instruction, but a folded constant.
         if llvm_can_value_use_fast_math_flags(inst) {
             let fastmath = self.fast_math_flags(ctx);
@@ -1861,7 +1877,7 @@ impl ToLLVMValue for FPExtOp {
             &cctx.builder,
             arg,
             ty,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         // The built value may not even be an instruction, but a folded constant.
         if llvm_can_value_use_fast_math_flags(fpext_op) {
@@ -1887,7 +1903,7 @@ impl ToLLVMValue for FPTruncOp {
             &cctx.builder,
             arg,
             ty,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         // The built value may not even be an instruction, but a folded constant.
         if llvm_can_value_use_fast_math_flags(fptrunc_op) {
@@ -1912,7 +1928,7 @@ impl ToLLVMValue for FPToSIOp {
             &cctx.builder,
             arg,
             ty,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         Ok(fptosi_op)
     }
@@ -1933,7 +1949,7 @@ impl ToLLVMValue for SIToFPOp {
             &cctx.builder,
             arg,
             ty,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         Ok(sitofp_op)
     }
@@ -1954,7 +1970,7 @@ impl ToLLVMValue for FPToUIOp {
             &cctx.builder,
             arg,
             ty,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         Ok(fptoui_op)
     }
@@ -1975,7 +1991,7 @@ impl ToLLVMValue for UIToFPOp {
             &cctx.builder,
             arg,
             ty,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         // The built value may not even be an instruction, but a folded constant.
         if llvm_is_a::instruction(uitofp_op) {
@@ -2002,7 +2018,7 @@ impl ToLLVMValue for VAArgOp {
             &cctx.builder,
             opd,
             ty,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         Ok(vaarg_op)
     }
@@ -2068,7 +2084,7 @@ fn convert_function(
         let llvm_entry_block = llvm_append_basic_block_in_context(
             llvm_ctx,
             func_llvm,
-            &entry.deref(ctx).unique_name(ctx),
+            entry.deref(ctx).unique_name(ctx).as_ref(),
         );
         cctx.block_map.insert(entry, llvm_entry_block);
     }
@@ -2076,12 +2092,12 @@ fn convert_function(
         let llvm_block = llvm_append_basic_block_in_context(
             llvm_ctx,
             func_llvm,
-            &block.deref(ctx).unique_name(ctx),
+            block.deref(ctx).unique_name(ctx).as_ref(),
         );
         llvm_position_builder_at_end(&cctx.builder, llvm_block);
         for arg in block.deref(ctx).arguments() {
             let arg_type = convert_type(ctx, llvm_ctx, cctx, arg.get_type(ctx))?;
-            let phi = llvm_build_phi(&cctx.builder, arg_type, &arg.unique_name(ctx));
+            let phi = llvm_build_phi(&cctx.builder, arg_type, arg.unique_name(ctx).as_ref());
             cctx.value_map.insert(arg, phi);
         }
         cctx.block_map.insert(block, llvm_block);
@@ -2386,7 +2402,7 @@ impl OpToLLVMConstValue for InsertValueOp {
             base,
             value,
             indices[0],
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         if !llvm_is_a::constant(insert_op) {
             return input_err!(op.loc(), ToLLVMErr::CannotEvaluateToConst);
@@ -2415,7 +2431,7 @@ impl OpToLLVMConstValue for InsertElementOp {
             base,
             value,
             index,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         if !llvm_is_a::constant(insert_op) {
             return input_err!(op.loc(), ToLLVMErr::CannotEvaluateToConst);
@@ -2441,7 +2457,7 @@ impl OpToLLVMConstValue for TruncOp {
             &cctx.scratch_builder,
             arg,
             ty,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         if !llvm_is_a::constant(trunc_op) {
             return input_err!(op.loc(), ToLLVMErr::CannotEvaluateToConst);
@@ -2467,7 +2483,7 @@ impl OpToLLVMConstValue for SubOp {
             &cctx.scratch_builder,
             lhs,
             rhs,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         if !llvm_is_a::constant(sub_op) {
             return input_err!(op.loc(), ToLLVMErr::CannotEvaluateToConst);
@@ -2493,7 +2509,7 @@ impl OpToLLVMConstValue for PtrToIntOp {
             &cctx.scratch_builder,
             arg,
             ty,
-            &self.get_result(ctx).unique_name(ctx),
+            self.get_result(ctx).unique_name(ctx).as_ref(),
         );
         if !llvm_is_a::constant(ptoi_op) {
             return input_err!(op.loc(), ToLLVMErr::CannotEvaluateToConst);
@@ -2568,7 +2584,7 @@ pub fn convert_module(
     module: ModuleOp,
 ) -> Result<LLVMModule> {
     let mod_name = module.get_symbol_name(ctx);
-    let llvm_module = LLVMModule::new(&mod_name, llvm_ctx);
+    let llvm_module = LLVMModule::new(mod_name.as_ref(), llvm_ctx);
     let cctx = &mut ConversionContext::new(llvm_ctx, &llvm_module);
 
     // Setup the scratch builder for evaluating constants.
