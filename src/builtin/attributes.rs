@@ -144,6 +144,19 @@ impl Parsable for StringAttr {
     }
 }
 
+/// An attribute containing a sequence of bytes.
+///
+/// Where [StringAttr] holds text, this holds uninterpreted binary data: the bytes need not be
+/// valid UTF-8 and may contain NULs. The length is explicit, so no byte is added or removed on
+/// the way in or out.
+#[pliron_attr(
+    name = "builtin.bytes",
+    format = "`[` vec($0, CharSpace(`,`)) `]`",
+    verifier = "succ"
+)]
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
+pub struct BytesAttr(pub Vec<u8>);
+
 /// A boolean attribute
 #[pliron_attr(name = "builtin.bool", format = "$0", verifier = "succ")]
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
@@ -692,28 +705,6 @@ mod tests {
         let attr_parsed = parse_from_str(attr_parser(), &mut ctx, attr_input).expect_ok(&ctx);
         assert_eq!(attr_parsed.disp(&ctx).to_string(), attr_input,);
 
-        for original in [
-            "newline\n",
-            "carriage\rreturn",
-            "tab\tseparated",
-            "nul\0byte",
-            "single'quote",
-            "back\\slash",
-            "printf: %d\n",
-            "non-printable\u{1}\u{7f}",
-            "unicode: \u{2603}",
-        ] {
-            let attr: AttrObj = StringAttr::new(original.to_string()).into();
-            let printed = attr.disp(&ctx).to_string();
-            let reparsed = parse_from_str(attr_parser(), &mut ctx, &printed).expect_ok(&ctx);
-            assert_eq!(
-                reparsed.downcast_ref::<StringAttr>().unwrap().as_str(),
-                original,
-                "round-trip failed for {original:?}, printed as {printed}"
-            );
-            assert_eq!(reparsed.disp(&ctx).to_string(), printed);
-        }
-
         // Unsupported escaped character.
         let err_msg = format!(
             "{}",
@@ -723,18 +714,6 @@ mod tests {
             Compilation error: invalid input program.
             Parse error at line: 1, column: 23
             Unexpected escaped character \k
-        "#]];
-        expected_err_msg.assert_eq(&err_msg);
-
-        // A malformed unicode escape is still rejected.
-        let err_msg = format!(
-            "{}",
-            parse_from_str(attr_parser(), &mut ctx, "builtin.string \"\\u{d800}\"").unwrap_err()
-        );
-        let expected_err_msg = expect![[r#"
-            Compilation error: invalid input program.
-            Parse error at line: 1, column: 17
-            Invalid unicode escape \u{d800}
         "#]];
         expected_err_msg.assert_eq(&err_msg);
     }

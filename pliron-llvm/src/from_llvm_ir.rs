@@ -13,7 +13,7 @@ use pliron::{
     attribute::AttrObj,
     basic_block::BasicBlock,
     builtin::{
-        attributes::{FPDoubleAttr, FPHalfAttr, FPSingleAttr, IntegerAttr, StringAttr},
+        attributes::{FPDoubleAttr, FPHalfAttr, FPSingleAttr, IntegerAttr},
         op_interfaces::{
             AtMostOneRegionInterface, CallOpCallable, OneResultInterface,
             SingleBlockRegionInterface,
@@ -51,8 +51,8 @@ use crate::{
         global_iter, incoming_iter, instruction_iter, llvm_can_value_use_fast_math_flags,
         llvm_const_int_get_zext_value, llvm_const_real_get_double, llvm_count_struct_element_types,
         llvm_get_aggregate_element, llvm_get_alignment, llvm_get_allocated_type,
-        llvm_get_array_length2, llvm_get_as_string, llvm_get_atomic_rmw_bin_op,
-        llvm_get_atomic_sync_scope_id, llvm_get_basic_block_name, llvm_get_basic_block_terminator,
+        llvm_get_array_length2, llvm_get_atomic_rmw_bin_op, llvm_get_atomic_sync_scope_id,
+        llvm_get_basic_block_name, llvm_get_basic_block_terminator,
         llvm_get_block_address_basic_block, llvm_get_block_address_function,
         llvm_get_called_function_type, llvm_get_called_value, llvm_get_cmpxchg_failure_ordering,
         llvm_get_cmpxchg_success_ordering, llvm_get_const_opcode, llvm_get_element_type,
@@ -1592,14 +1592,6 @@ fn convert_function(
     Ok(m_func)
 }
 
-/// The contents of `init` if it is a NUL-terminated UTF-8 byte string, with the terminator
-/// stripped.
-fn constant_c_string(init: LLVMValue) -> Option<String> {
-    let bytes = llvm_get_as_string(init)?;
-    let contents = bytes.strip_suffix(&[0u8])?;
-    String::from_utf8(contents.to_vec()).ok()
-}
-
 fn convert_global(
     ctx: &mut Context,
     cctx: &mut ConversionContext,
@@ -1635,13 +1627,7 @@ fn convert_global(
 
     if let Some(init) = llvm_get_initializer(global) {
         assert!(!llvm_is_declaration(global));
-
-        if let Some(s) = constant_c_string(init) {
-            op.set_initializer_value(ctx, StringAttr::new(s).into());
-            return Ok(op);
-        }
-
-        // TODO: Use attribute based initializer for other simple constants.
+        // TODO: Use attribute based initializer for simple constants.
         let init_region = op.add_initializer_region(ctx);
         let entry_block = init_region.deref(ctx).iter(ctx).next().unwrap();
         cctx.reset_for_region(entry_block);

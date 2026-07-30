@@ -39,12 +39,12 @@ use llvm_sys::{
         LLVMDeleteFunction, LLVMDeleteGlobal, LLVMDisposeMemoryBuffer, LLVMDisposeMessage,
         LLVMDisposeModule, LLVMDoubleTypeInContext, LLVMDumpModule, LLVMDumpType, LLVMDumpValue,
         LLVMFloatTypeInContext, LLVMFunctionType, LLVMGetAggregateElement, LLVMGetAlignment,
-        LLVMGetAllocatedType, LLVMGetArrayLength2, LLVMGetAsString, LLVMGetBasicBlockName,
-        LLVMGetBasicBlockParent, LLVMGetBasicBlockTerminator, LLVMGetBlockAddressBasicBlock,
-        LLVMGetBlockAddressFunction, LLVMGetCalledFunctionType, LLVMGetCalledValue,
-        LLVMGetConstOpcode, LLVMGetElementType, LLVMGetFCmpPredicate, LLVMGetFastMathFlags,
-        LLVMGetFirstBasicBlock, LLVMGetFirstFunction, LLVMGetFirstGlobal, LLVMGetFirstInstruction,
-        LLVMGetFirstParam, LLVMGetGEPSourceElementType, LLVMGetICmpPredicate, LLVMGetIncomingBlock,
+        LLVMGetAllocatedType, LLVMGetArrayLength2, LLVMGetBasicBlockName, LLVMGetBasicBlockParent,
+        LLVMGetBasicBlockTerminator, LLVMGetBlockAddressBasicBlock, LLVMGetBlockAddressFunction,
+        LLVMGetCalledFunctionType, LLVMGetCalledValue, LLVMGetConstOpcode, LLVMGetElementType,
+        LLVMGetFCmpPredicate, LLVMGetFastMathFlags, LLVMGetFirstBasicBlock, LLVMGetFirstFunction,
+        LLVMGetFirstGlobal, LLVMGetFirstInstruction, LLVMGetFirstParam,
+        LLVMGetGEPSourceElementType, LLVMGetICmpPredicate, LLVMGetIncomingBlock,
         LLVMGetIncomingValue, LLVMGetIndices, LLVMGetInitializer, LLVMGetInsertBlock,
         LLVMGetInstructionOpcode, LLVMGetInstructionParent, LLVMGetIntTypeWidth,
         LLVMGetIntrinsicDeclaration, LLVMGetLastFunction, LLVMGetLastGlobal, LLVMGetLinkage,
@@ -59,15 +59,14 @@ use llvm_sys::{
         LLVMGetUndef, LLVMGetUndefMaskElem, LLVMGetValueKind, LLVMGetValueName2, LLVMGetVectorSize,
         LLVMGlobalGetValueType, LLVMHalfTypeInContext, LLVMInstructionEraseFromParent,
         LLVMIntTypeInContext, LLVMIntrinsicIsOverloaded, LLVMIsAFunction, LLVMIsATerminatorInst,
-        LLVMIsAUser, LLVMIsConstantString, LLVMIsDeclaration, LLVMIsFunctionVarArg,
-        LLVMIsOpaqueStruct, LLVMLookupIntrinsicID, LLVMModuleCreateWithNameInContext,
-        LLVMPointerTypeInContext, LLVMPositionBuilderAtEnd, LLVMPositionBuilderBefore,
-        LLVMPrintModuleToFile, LLVMPrintModuleToString, LLVMPrintTypeToString,
-        LLVMPrintValueToString, LLVMReplaceAllUsesWith, LLVMScalableVectorType, LLVMSetAlignment,
-        LLVMSetFastMathFlags, LLVMSetInitializer, LLVMSetLinkage, LLVMSetNNeg,
-        LLVMStructCreateNamed, LLVMStructSetBody, LLVMStructTypeInContext, LLVMTypeIsSized,
-        LLVMTypeOf, LLVMValueAsBasicBlock, LLVMValueIsBasicBlock, LLVMVectorType,
-        LLVMVoidTypeInContext,
+        LLVMIsAUser, LLVMIsDeclaration, LLVMIsFunctionVarArg, LLVMIsOpaqueStruct,
+        LLVMLookupIntrinsicID, LLVMModuleCreateWithNameInContext, LLVMPointerTypeInContext,
+        LLVMPositionBuilderAtEnd, LLVMPositionBuilderBefore, LLVMPrintModuleToFile,
+        LLVMPrintModuleToString, LLVMPrintTypeToString, LLVMPrintValueToString,
+        LLVMReplaceAllUsesWith, LLVMScalableVectorType, LLVMSetAlignment, LLVMSetFastMathFlags,
+        LLVMSetInitializer, LLVMSetLinkage, LLVMSetNNeg, LLVMStructCreateNamed, LLVMStructSetBody,
+        LLVMStructTypeInContext, LLVMTypeIsSized, LLVMTypeOf, LLVMValueAsBasicBlock,
+        LLVMValueIsBasicBlock, LLVMVectorType, LLVMVoidTypeInContext,
     },
     error::{LLVMDisposeErrorMessage, LLVMErrorRef, LLVMGetErrorMessage},
     prelude::{
@@ -1008,43 +1007,19 @@ pub fn llvm_const_null(ty: LLVMType) -> LLVMValue {
 }
 
 /// LLVMConstStringInContext2
-pub fn llvm_const_string_in_context(
-    context: &LLVMContext,
-    s: &str,
-    dont_null_terminate: bool,
-) -> LLVMValue {
+///
+/// Builds an `[N x i8]` constant holding exactly `bytes`, with no terminator added.
+pub fn llvm_const_bytes_in_context(context: &LLVMContext, bytes: &[u8]) -> LLVMValue {
     unsafe {
         LLVMConstStringInContext2(
             context.inner_ref(),
-            s.as_ptr() as *const core::ffi::c_char,
-            s.len(),
-            dont_null_terminate as llvm_sys::prelude::LLVMBool,
+            bytes.as_ptr() as *const core::ffi::c_char,
+            bytes.len(),
+            // Do not append a NUL: the caller's bytes are the whole constant.
+            true as llvm_sys::prelude::LLVMBool,
         )
         .into()
     }
-}
-
-/// LLVMIsConstantString
-pub fn llvm_is_constant_string(val: LLVMValue) -> bool {
-    matches!(
-        llvm_get_value_kind(val),
-        LLVMValueKind::LLVMConstantDataArrayValueKind
-            | LLVMValueKind::LLVMConstantDataVectorValueKind
-    ) && unsafe { LLVMIsConstantString(val.into()).to_bool() }
-}
-
-/// LLVMGetAsString
-pub fn llvm_get_as_string(val: LLVMValue) -> Option<Vec<u8>> {
-    if !llvm_is_constant_string(val) {
-        return None;
-    }
-    let mut len = 0;
-    let ptr = unsafe { LLVMGetAsString(val.into(), &mut len) };
-    if ptr.is_null() {
-        return None;
-    }
-    // Safety: LLVM guarantees `len` bytes readable at `ptr`, owned by the constant.
-    Some(unsafe { core::slice::from_raw_parts(ptr as *const u8, len) }.to_vec())
 }
 
 /// LLVMGetAllocatedType

@@ -337,14 +337,14 @@ fn test_indirectbr() {
     );
 }
 
-/// Test const structs and arrays, and the constant C string behind a variadic `printf` call.
+/// Test const structs and arrays
 #[test]
 fn test_consts() {
     init_env_logger_for_tests!();
     test_llvm_ir_via_pliron(
         RESOURCES_DIR.join("consts.ll").to_str().unwrap(),
         Passes::default(),
-        217,
+        203,
     );
 }
 

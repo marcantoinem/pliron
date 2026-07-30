@@ -10,8 +10,8 @@ use crate::{
     attribute::AttrObj,
     basic_block::BasicBlock,
     combine::{
-        Parser, Stream, any, attempt, between, many, many1, none_of,
-        parser::char::{digit, hex_digit, spaces, string},
+        Parser, Stream, any, between, many, many1, none_of,
+        parser::char::{digit, spaces},
         sep_by, token,
     },
     context::Ptr,
@@ -141,27 +141,6 @@ pub fn quoted_string_parse<'a>(
     state_stream: &mut StateStream<'a>,
     _arg: (),
 ) -> ParseResult<'a, String> {
-    let unicode_escape = combine::parser(move |parsable_state: &mut StateStream<'a>| {
-        let loc = parsable_state.loc();
-        let mut unicode_escape = attempt(string("\\u{"))
-            .with(many1::<String, _, _>(hex_digit()))
-            .skip(token('}'))
-            .then(move |digits: String| {
-                let loc = loc.clone();
-                combine::parser(move |_parsable_state: &mut StateStream<'a>| {
-                    let result = match u32::from_str_radix(&digits, 16)
-                        .ok()
-                        .and_then(char::from_u32)
-                    {
-                        Some(c) => Ok(c),
-                        None => arg_err!(loc.clone(), "Invalid unicode escape \\u{{{}}}", digits),
-                    };
-                    result.into_parse_result()
-                })
-            });
-        unicode_escape.parse_stream(parsable_state).into()
-    });
-
     // An escaped charater is one that is preceded by a backslash.
     let escaped_char = combine::parser(move |parsable_state: &mut StateStream<'a>| {
         // This combine::parser() is so that we can get a location before the parsing begins.
@@ -175,11 +154,6 @@ pub fn quoted_string_parse<'a>(
                 let result = match c {
                     '\\' => Ok('\\'),
                     '\"' => Ok('\"'),
-                    '\'' => Ok('\''),
-                    'n' => Ok('\n'),
-                    'r' => Ok('\r'),
-                    't' => Ok('\t'),
-                    '0' => Ok('\0'),
                     _ => arg_err!(loc.clone(), "Unexpected escaped character \\{}", c),
                 };
                 result.into_parse_result()
@@ -192,7 +166,7 @@ pub fn quoted_string_parse<'a>(
     let quoted_string = between(
         token('"'),
         token('"'),
-        many(unicode_escape.or(escaped_char).or(none_of("\"".chars()))),
+        many(escaped_char.or(none_of("\"".chars()))),
     );
 
     quoted_string
