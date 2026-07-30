@@ -166,7 +166,7 @@ pub enum ToLLVMErr {
     InsertExtractValueIndices,
     #[error("GlobalOp Initializer region does not terminate with a return with value")]
     GlobalOpInitializerRegionBadReturn,
-    #[error("GlobalOp initializer attribute {0} is not supported")]
+    #[error("GlobalOp initializer attribute {0} must implement LLVM conversion")]
     UnsupportedGlobalInitializer(String),
     #[error("Cannot evaluate value to a constant")]
     CannotEvaluateToConst,
@@ -2094,6 +2094,38 @@ fn convert_function(
     Ok(func_llvm)
 }
 
+/// Attributes that can be converted to a constant [LLVMValue]
+#[attr_interface]
+trait ToLLVMConst {
+    /// Convert from pliron [Attribute] to a constant [LLVMValue].
+    fn convert(
+        &self,
+        ctx: &Context,
+        llvm_ctx: &LLVMContext,
+        cctx: &mut ConversionContext,
+    ) -> Result<LLVMValue>;
+
+    fn verify(_op: &dyn Attribute, _ctx: &Context) -> Result<()>
+    where
+        Self: Sized,
+    {
+        Ok(())
+    }
+}
+
+#[attr_interface_impl]
+impl ToLLVMConst for BytesAttr {
+    fn convert(
+        &self,
+        _ctx: &Context,
+        llvm_ctx: &LLVMContext,
+        _cctx: &mut ConversionContext,
+    ) -> Result<LLVMValue> {
+        Ok(llvm_const_bytes_in_context(llvm_ctx, self.as_ref()))
+    }
+}
+
+/// Pliron [Op]s that can be converted to a constant [LLVMValue]
 #[op_interface]
 trait ToLLVMConstValue {
     /// Convert from pliron [Op] to a constant [LLVMValue].
@@ -2397,13 +2429,13 @@ fn convert_global_initializer(
     global_op: GlobalOp,
 ) -> Result<Option<LLVMValue>> {
     if let Some(initializer) = global_op.get_initializer_value(ctx) {
-        let Some(bytes) = initializer.downcast_ref::<BytesAttr>() else {
+        let Some(bytes) = attr_cast::<dyn ToLLVMConst>(initializer.as_ref()) else {
             return input_err!(
                 global_op.loc(ctx),
                 ToLLVMErr::UnsupportedGlobalInitializer(initializer.disp(ctx).to_string())
             );
         };
-        return Ok(Some(llvm_const_bytes_in_context(llvm_ctx, &bytes.0)));
+        return Ok(Some(bytes.convert(ctx, llvm_ctx, cctx)?));
     }
 
     if let Some(init_block) = global_op.get_initializer_block(ctx) {

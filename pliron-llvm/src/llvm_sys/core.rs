@@ -1015,8 +1015,8 @@ pub fn llvm_const_bytes_in_context(context: &LLVMContext, bytes: &[u8]) -> LLVMV
             context.inner_ref(),
             bytes.as_ptr() as *const core::ffi::c_char,
             bytes.len(),
-            // Do not append a NUL: the caller's bytes are the whole constant.
-            true as llvm_sys::prelude::LLVMBool,
+            // Do not append a NULL: the caller's bytes are the whole constant.
+            true.into(),
         )
         .into()
     }
