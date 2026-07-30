@@ -12,7 +12,7 @@ use pliron::{
     basic_block::BasicBlock,
     builtin::{
         attr_interfaces::FloatAttr,
-        attributes::{FPDoubleAttr, FPHalfAttr, FPSingleAttr, IntegerAttr, StringAttr},
+        attributes::{BytesAttr, FPDoubleAttr, FPHalfAttr, FPSingleAttr, IntegerAttr, StringAttr},
         op_interfaces::{
             AtMostOneRegionInterface, BranchOpInterface, CallOpCallable, CallOpInterface,
             OneOpdInterface, OneResultInterface, SingleBlockRegionInterface, SymbolOpInterface,
@@ -65,11 +65,12 @@ use crate::{
         llvm_build_sub, llvm_build_switch, llvm_build_trunc, llvm_build_udiv, llvm_build_uitofp,
         llvm_build_unreachable, llvm_build_urem, llvm_build_va_arg, llvm_build_xor,
         llvm_build_zext, llvm_can_value_use_fast_math_flags, llvm_clear_insertion_position,
-        llvm_const_int, llvm_const_null, llvm_const_real, llvm_const_vector, llvm_delete_global,
-        llvm_double_type_in_context, llvm_float_type_in_context, llvm_function_type,
-        llvm_get_inline_asm, llvm_get_named_function, llvm_get_param,
-        llvm_get_pointer_address_space, llvm_get_poison, llvm_get_sync_scope_id, llvm_get_undef,
-        llvm_half_type_in_context, llvm_int_type_in_context, llvm_is_a, llvm_lookup_intrinsic_id,
+        llvm_const_bytes_in_context, llvm_const_int, llvm_const_null, llvm_const_real,
+        llvm_const_vector, llvm_delete_global, llvm_double_type_in_context,
+        llvm_float_type_in_context, llvm_function_type, llvm_get_inline_asm,
+        llvm_get_named_function, llvm_get_param, llvm_get_pointer_address_space, llvm_get_poison,
+        llvm_get_sync_scope_id, llvm_get_undef, llvm_half_type_in_context,
+        llvm_int_type_in_context, llvm_is_a, llvm_lookup_intrinsic_id,
         llvm_pointer_type_in_context, llvm_position_builder_at_end, llvm_replace_all_uses_with,
         llvm_scalable_vector_type, llvm_set_alignment, llvm_set_atomic_sync_scope_id,
         llvm_set_fast_math_flags, llvm_set_initializer, llvm_set_linkage, llvm_set_nneg,
@@ -165,6 +166,8 @@ pub enum ToLLVMErr {
     InsertExtractValueIndices,
     #[error("GlobalOp Initializer region does not terminate with a return with value")]
     GlobalOpInitializerRegionBadReturn,
+    #[error("GlobalOp initializer attribute {0} must implement LLVM conversion")]
+    UnsupportedGlobalInitializer(String),
     #[error("Cannot evaluate value to a constant")]
     CannotEvaluateToConst,
     #[error("BlockAddressOp refers to missing block tag {1} in function {0}")]
@@ -2091,6 +2094,38 @@ fn convert_function(
     Ok(func_llvm)
 }
 
+/// Attributes that can be converted to a constant [LLVMValue]
+#[attr_interface]
+trait ToLLVMConst {
+    /// Convert from pliron [Attribute] to a constant [LLVMValue].
+    fn convert(
+        &self,
+        ctx: &Context,
+        llvm_ctx: &LLVMContext,
+        cctx: &mut ConversionContext,
+    ) -> Result<LLVMValue>;
+
+    fn verify(_op: &dyn Attribute, _ctx: &Context) -> Result<()>
+    where
+        Self: Sized,
+    {
+        Ok(())
+    }
+}
+
+#[attr_interface_impl]
+impl ToLLVMConst for BytesAttr {
+    fn convert(
+        &self,
+        _ctx: &Context,
+        llvm_ctx: &LLVMContext,
+        _cctx: &mut ConversionContext,
+    ) -> Result<LLVMValue> {
+        Ok(llvm_const_bytes_in_context(llvm_ctx, self.as_ref()))
+    }
+}
+
+/// Pliron [Op]s that can be converted to a constant [LLVMValue]
 #[op_interface]
 trait ToLLVMConstValue {
     /// Convert from pliron [Op] to a constant [LLVMValue].
@@ -2393,8 +2428,14 @@ fn convert_global_initializer(
     cctx: &mut ConversionContext,
     global_op: GlobalOp,
 ) -> Result<Option<LLVMValue>> {
-    if let Some(_initializer) = global_op.get_initializer_value(ctx) {
-        todo!()
+    if let Some(initializer) = global_op.get_initializer_value(ctx) {
+        let Some(bytes) = attr_cast::<dyn ToLLVMConst>(initializer.as_ref()) else {
+            return input_err!(
+                global_op.loc(ctx),
+                ToLLVMErr::UnsupportedGlobalInitializer(initializer.disp(ctx).to_string())
+            );
+        };
+        return Ok(Some(bytes.convert(ctx, llvm_ctx, cctx)?));
     }
 
     if let Some(init_block) = global_op.get_initializer_block(ctx) {

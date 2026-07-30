@@ -32,9 +32,9 @@ use llvm_sys::{
         LLVMBuildTrunc, LLVMBuildUDiv, LLVMBuildUIToFP, LLVMBuildURem, LLVMBuildUnreachable,
         LLVMBuildVAArg, LLVMBuildXor, LLVMBuildZExt, LLVMCanValueUseFastMathFlags,
         LLVMClearInsertionPosition, LLVMConstInt, LLVMConstIntGetZExtValue, LLVMConstNull,
-        LLVMConstReal, LLVMConstRealGetDouble, LLVMConstVector, LLVMContextCreate,
-        LLVMContextDispose, LLVMCountIncoming, LLVMCountParamTypes, LLVMCountParams,
-        LLVMCountStructElementTypes, LLVMCreateBuilderInContext,
+        LLVMConstReal, LLVMConstRealGetDouble, LLVMConstStringInContext2, LLVMConstVector,
+        LLVMContextCreate, LLVMContextDispose, LLVMCountIncoming, LLVMCountParamTypes,
+        LLVMCountParams, LLVMCountStructElementTypes, LLVMCreateBuilderInContext,
         LLVMCreateMemoryBufferWithContentsOfFile, LLVMCreateMemoryBufferWithMemoryRangeCopy,
         LLVMDeleteFunction, LLVMDeleteGlobal, LLVMDisposeMemoryBuffer, LLVMDisposeMessage,
         LLVMDisposeModule, LLVMDoubleTypeInContext, LLVMDumpModule, LLVMDumpType, LLVMDumpValue,
@@ -1004,6 +1004,22 @@ pub fn llvm_const_real(ty: LLVMType, n: f64) -> LLVMValue {
 /// LLVMConstNull
 pub fn llvm_const_null(ty: LLVMType) -> LLVMValue {
     unsafe { LLVMConstNull(ty.into()).into() }
+}
+
+/// LLVMConstStringInContext2
+///
+/// Builds an `[N x i8]` constant holding exactly `bytes`, with no terminator added.
+pub fn llvm_const_bytes_in_context(context: &LLVMContext, bytes: &[u8]) -> LLVMValue {
+    unsafe {
+        LLVMConstStringInContext2(
+            context.inner_ref(),
+            bytes.as_ptr() as *const core::ffi::c_char,
+            bytes.len(),
+            // Do not append a NULL: the caller's bytes are the whole constant.
+            true.into(),
+        )
+        .into()
+    }
 }
 
 /// LLVMGetAllocatedType
