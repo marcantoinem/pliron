@@ -156,3 +156,72 @@ fn llvm_ir_select_without_fastmath_flags_omits_attr() -> Result<()> {
 
     Ok(())
 }
+
+/// An overloaded intrinsic used at two signatures in one module must get a separately mangled
+/// declaration for each. Sharing one declaration under the bare name makes the mismatching calls
+/// indirect calls to an undefined symbol.
+#[test]
+fn overloaded_intrinsic_is_mangled_per_signature() -> Result<()> {
+    let input = r#"
+            builtin.module @m {
+            ^block_0_0():
+              llvm.func @foo: llvm.func <builtin.fp32(builtin.fp32, llvm.vector <Fixed x 2 x builtin.fp32 >) variadic = false> [] {
+              ^entry_block_1_0(a: builtin.fp32, v: llvm.vector <Fixed x 2 x builtin.fp32 >):
+                w = llvm.call_intrinsic @"llvm.maximum" (v, v) : llvm.func <llvm.vector <Fixed x 2 x builtin.fp32 >(llvm.vector <Fixed x 2 x builtin.fp32 >, llvm.vector <Fixed x 2 x builtin.fp32 >) variadic = false>;
+                z = llvm.constant <builtin.integer <0: i32>> : builtin.integer i32;
+                e = llvm.extract_element w, z : builtin.fp32;
+                m = llvm.call_intrinsic @"llvm.maximum" (a, e) : llvm.func <builtin.fp32 (builtin.fp32, builtin.fp32) variadic = false>;
+                llvm.return m
+              }
+            }
+        "#;
+
+    let after = to_llvm_ir_o1(input)?;
+
+    expect![[r#"
+        ; ModuleID = 'm'
+        source_filename = "m"
+
+        define float @foo(float %0, <2 x float> %1) {
+        entry_block_1_0_block2v1:
+          %w_v2 = call <2 x float> @llvm.maximum.v2f32(<2 x float> %1, <2 x float> %1)
+          %e_v4 = extractelement <2 x float> %w_v2, i32 0
+          %m_v5 = call float @llvm.maximum.f32(float %0, float %e_v4)
+          ret float %m_v5
+        }
+
+        ; Function Attrs: nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+        declare <2 x float> @llvm.maximum.v2f32(<2 x float>, <2 x float>) #0
+
+        ; Function Attrs: nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+        declare float @llvm.maximum.f32(float, float) #0
+
+        attributes #0 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+    "#]].assert_eq(&after);
+
+    Ok(())
+}
+
+/// The overload types are recovered from the call signature, so a call that isn't a valid
+/// instance of the intrinsic is rejected instead of silently declaring an external symbol.
+/// `llvm.abs` is `i_ (i_, i1 immarg)`; here it is called with only the first argument.
+#[test]
+fn intrinsic_call_with_invalid_signature_is_rejected() {
+    let input = r#"
+            builtin.module @m {
+            ^block_0_0():
+              llvm.func @foo: llvm.func <builtin.integer i32(builtin.integer i32) variadic = false> [] {
+              ^entry_block_1_0(a: builtin.integer i32):
+                r = llvm.call_intrinsic @"llvm.abs" (a) : llvm.func <builtin.integer i32(builtin.integer i32) variadic = false>;
+                llvm.return r
+              }
+            }
+        "#;
+
+    let err = to_llvm_ir_o1(input).expect_err("invalid intrinsic signature must be rejected");
+    assert!(
+        err.to_string()
+            .contains("Call to intrinsic llvm.abs has an invalid signature"),
+        "unexpected error: {err}"
+    );
+}

@@ -2645,6 +2645,54 @@ pub fn llvm_intrinsic_is_overloaded(id: IntrinsicID) -> bool {
     unsafe { LLVMIntrinsicIsOverloaded(id.0).to_bool() }
 }
 
+unsafe extern "C" {
+    /// See `cpp/intrinsic_signature.cpp`.
+    fn PlironIntrinsicGetSignature(
+        id: u32,
+        fn_ty: llvm_sys::prelude::LLVMTypeRef,
+        out_tys: *mut llvm_sys::prelude::LLVMTypeRef,
+        out_cap: usize,
+        out_count: *mut usize,
+    ) -> i32;
+}
+
+/// Intrinsic::getIntrinsicSignature
+///
+/// The types `id` is overloaded at when instantiated as `fn_ty`, in the order
+/// [llvm_get_intrinsic_declaration] wants them. Empty for a non-overloaded intrinsic,
+/// `Err` if `fn_ty` isn't a valid signature for `id`.
+pub fn llvm_intrinsic_get_signature(
+    id: IntrinsicID,
+    fn_ty: LLVMType,
+) -> Result<Vec<LLVMType>, String> {
+    let mut out: Vec<llvm_sys::prelude::LLVMTypeRef> = vec![core::ptr::null_mut(); 8];
+    let mut count = 0usize;
+
+    // Safety: `out` has `out.len()` writable elements, and the shim writes none unless it
+    // returns 0, and at most `count <= out.len()` then.
+    let mut rc = unsafe {
+        PlironIntrinsicGetSignature(id.0, fn_ty.into(), out.as_mut_ptr(), out.len(), &mut count)
+    };
+    if rc == -3 {
+        out.resize(count, core::ptr::null_mut());
+        rc = unsafe {
+            PlironIntrinsicGetSignature(id.0, fn_ty.into(), out.as_mut_ptr(), out.len(), &mut count)
+        };
+    }
+
+    match rc {
+        0 => Ok(out[..count].iter().map(|ty| (*ty).into()).collect()),
+        -1 => Err("intrinsic signature must be a function type".to_string()),
+        -2 => Err(format!(
+            "{fn_ty} is not a valid signature for intrinsic ID {}",
+            id.0
+        )),
+        other => Err(format!(
+            "unexpected intrinsic signature match result {other}"
+        )),
+    }
+}
+
 /// LLVMGetIntrinsicDeclaration
 pub fn llvm_get_intrinsic_declaration(
     module: &LLVMModule,

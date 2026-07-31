@@ -69,14 +69,15 @@ use crate::{
         llvm_const_int, llvm_const_null, llvm_const_real, llvm_const_string_in_context,
         llvm_const_vector, llvm_delete_global, llvm_double_type_in_context,
         llvm_float_type_in_context, llvm_function_type, llvm_get_inline_asm,
-        llvm_get_named_function, llvm_get_param, llvm_get_pointer_address_space, llvm_get_poison,
-        llvm_get_sync_scope_id, llvm_get_undef, llvm_half_type_in_context,
-        llvm_int_type_in_context, llvm_is_a, llvm_lookup_intrinsic_id,
-        llvm_pointer_type_in_context, llvm_position_builder_at_end, llvm_replace_all_uses_with,
-        llvm_scalable_vector_type, llvm_set_alignment, llvm_set_atomic_sync_scope_id,
-        llvm_set_fast_math_flags, llvm_set_initializer, llvm_set_linkage, llvm_set_nneg,
-        llvm_set_ordering, llvm_struct_create_named, llvm_struct_set_body,
-        llvm_struct_type_in_context, llvm_type_of, llvm_vector_type, llvm_void_type_in_context,
+        llvm_get_intrinsic_declaration, llvm_get_param, llvm_get_pointer_address_space,
+        llvm_get_poison, llvm_get_sync_scope_id, llvm_get_undef, llvm_half_type_in_context,
+        llvm_int_type_in_context, llvm_intrinsic_get_signature, llvm_is_a,
+        llvm_lookup_intrinsic_id, llvm_pointer_type_in_context, llvm_position_builder_at_end,
+        llvm_replace_all_uses_with, llvm_scalable_vector_type, llvm_set_alignment,
+        llvm_set_atomic_sync_scope_id, llvm_set_fast_math_flags, llvm_set_initializer,
+        llvm_set_linkage, llvm_set_nneg, llvm_set_ordering, llvm_struct_create_named,
+        llvm_struct_set_body, llvm_struct_type_in_context, llvm_type_of, llvm_vector_type,
+        llvm_void_type_in_context,
     },
     op_interfaces::{
         AlignableOpInterface, FastMathFlags, IsDeclaration, LlvmSymbolName, NNegFlag,
@@ -173,6 +174,8 @@ pub enum ToLLVMErr {
     CannotEvaluateToConst,
     #[error("BlockAddressOp refers to missing block tag {1} in function {0}")]
     MissingBlockTag(String, u64),
+    #[error("Call to intrinsic {0} has an invalid signature: {1}")]
+    IntrinsicSignatureMismatch(String, String),
 }
 
 pub fn convert_ipredicate(pred: ICmpPredicateAttr) -> LLVMIntPredicate {
@@ -1384,17 +1387,20 @@ impl ToLLVMValue for CallIntrinsicOp {
                 .clone(),
         );
 
-        let _intrinsic_id = llvm_lookup_intrinsic_id(&intrinsic_name).ok_or_else(|| {
+        let intrinsic_id = llvm_lookup_intrinsic_id(&intrinsic_name).ok_or_else(|| {
             input_error_noloc!(ToLLVMErr::UndefinedValue(intrinsic_name.to_string()))
         })?;
 
-        // We just use llvm_add_function instead of llvm_get_intrinsic_declaration here
-        // because the latter requires that (and I quote from Intrinsics.h::getOrInsertDeclaration):
-        //   "For a declaration of an overloaded intrinsic, Tys must provide exactly one
-        //    type for each overloaded type in the intrinsic."
-        // I don't know how to determine that from just the name and argument types.
-        let intrinsic_fn = llvm_get_named_function(cctx.cur_llvm_module, &intrinsic_name)
-            .unwrap_or_else(|| llvm_add_function(cctx.cur_llvm_module, &intrinsic_name, fn_ty));
+        // An overloaded intrinsic must be declared under its mangled name (llvm.maximum.f32,
+        // llvm.maximum.v2f32, ...), so recover the types it is overloaded at from the signature.
+        // Under the bare name, LLVM shares one declaration between every signature in the module
+        // and turns all but the first into indirect calls to an undefined symbol.
+        let overload_tys = llvm_intrinsic_get_signature(intrinsic_id, fn_ty).map_err(|err| {
+            input_error_noloc!(ToLLVMErr::IntrinsicSignatureMismatch(intrinsic_name, err))
+        })?;
+        let intrinsic_fn =
+            llvm_get_intrinsic_declaration(cctx.cur_llvm_module, intrinsic_id, &overload_tys)
+                .map_err(|err| input_error_noloc!(ToLLVMErr::UndefinedValue(err)))?;
 
         let res = self.get_result(ctx);
         let unique_name;
