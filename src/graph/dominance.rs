@@ -509,10 +509,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::{
-        graph::{ControlFlowGraph, HasLabel},
-        std_deps::hash::HashSet,
-    };
+    use crate::graph::{ControlFlowGraph, HasLabel};
 
     #[derive(Clone, Debug)]
     struct Node {
@@ -615,7 +612,10 @@ mod tests {
         assert_eq!(dom.idom(&2), Some(0));
         assert_eq!(dom.idom(&3), Some(0));
 
-        assert_eq!(dom.children(&0).collect::<HashSet<_>>(), [1, 2, 3].into());
+        assert_eq!(
+            dom.children(&0).collect::<ISet<_>>(),
+            ISet::from_iter([1, 2, 3])
+        );
         assert_eq!(dom.nearest_common_dominator(&1, &2), 0);
     }
 
@@ -643,10 +643,13 @@ mod tests {
         assert!(dom.dominates(&1, &3));
         assert!(!dom.dominates(&2, &3));
 
-        assert_eq!(dom.children(&0).collect::<HashSet<_>>(), [1].into());
-        assert_eq!(dom.children(&1).collect::<HashSet<_>>(), [2, 3].into());
-        assert_eq!(dom.children(&2).collect::<HashSet<_>>(), [].into());
-        assert_eq!(dom.children(&3).collect::<HashSet<_>>(), [].into());
+        assert_eq!(dom.children(&0).collect::<ISet<_>>(), ISet::from_iter([1]));
+        assert_eq!(
+            dom.children(&1).collect::<ISet<_>>(),
+            ISet::from_iter([2, 3])
+        );
+        assert_eq!(dom.children(&2).collect::<ISet<_>>(), ISet::from_iter([]));
+        assert_eq!(dom.children(&3).collect::<ISet<_>>(), ISet::from_iter([]));
 
         assert_eq!(dom.nearest_common_dominator(&2, &3), 1);
         assert_eq!(dom.nearest_common_dominator(&3, &2), 1);
@@ -716,7 +719,10 @@ mod tests {
         assert_eq!(dom.idom(&8), Some(7));
         assert_eq!(dom.idom(&9), Some(7));
 
-        assert_eq!(dom.children(&3).collect::<HashSet<_>>(), [4, 5, 6].into());
+        assert_eq!(
+            dom.children(&3).collect::<ISet<_>>(),
+            ISet::from_iter([4, 5, 6])
+        );
     }
 
     #[test]
@@ -733,7 +739,7 @@ mod tests {
         assert_eq!(dom.idom(&0), None);
         assert_eq!(dom.idom(&1), Some(0));
 
-        assert_eq!(dom.children(&0).collect::<HashSet<_>>(), [1].into());
+        assert_eq!(dom.children(&0).collect::<ISet<_>>(), ISet::from_iter([1]));
     }
 
     #[test]
