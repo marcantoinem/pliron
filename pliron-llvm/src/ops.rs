@@ -3252,10 +3252,10 @@ impl Verify for FPTruncOp {
         if let Some(vec_ty) = opd_ty.downcast_ref::<VectorType>() {
             opd_ty = vec_ty.elem_type().deref(ctx);
         }
-
         let Some(opd_float_ty) = type_cast::<dyn FloatTypeInterface>(&*opd_ty) else {
             return verify_err!(self.loc(ctx), FloatCastVerifyErr::OperandTypeErr);
         };
+
         let mut res_ty = self.result_type(ctx).deref(ctx);
         if let Some(vec_ty) = res_ty.downcast_ref::<VectorType>() {
             res_ty = vec_ty.elem_type().deref(ctx);
