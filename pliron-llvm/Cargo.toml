@@ -12,9 +12,11 @@ license.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["llvm-sys"]
+default = ["llvm-sys", "link-libffi"]
 
 llvm-sys = ["dep:llvm-sys", "std"]
+# Links libffi. Needed when LLVM is built with `LLVM_ENABLE_FFI=ON`
+link-libffi = ["llvm-sys"]
 std = ["pliron/std", "bitflags/std"]
 
 [dependencies]
