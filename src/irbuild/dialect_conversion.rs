@@ -4,7 +4,7 @@
 //! Utilities for dialect conversion style rewrites.
 //! Similar in spirit to MLIR dialect conversion, but intentionally simpler:
 //! - no unrealized conversion casts,
-//! - definitions are always converted before their uses.
+//! - definitions are converted before their uses, except in graph regions.
 
 use core::cell::Ref;
 
@@ -127,7 +127,10 @@ pub trait DialectConversion {
     /// Rewrite the operation.
     ///
     /// Insertion point is set to be before the operation being rewritten.
-    /// All operands are already converted before this callback is invoked.
+    ///
+    /// Operand definitions (except those in graph regions) are converted before
+    /// this callback is invoked
+    ///
     /// `operands_info` provides the current operand values along with their
     /// historical types observed during conversion. The last type in the history
     /// is the most recent type before conversion.
@@ -142,8 +145,9 @@ pub trait DialectConversion {
 
 /// Applies dialect conversion rewrites rooted at `op`.
 ///
-/// Conversion is trait-driven and ensures that any convertible
-/// operand definitions are rewritten before rewriting the current operation.
+/// Conversion is trait-driven and ensures that convertible operand
+/// definitions (except those in graph regions) are rewritten before
+/// rewriting the current operation.
 ///
 /// All block arguments reachable from `op` are converted up front.
 /// Block arguments of blocks inserted during conversion are
@@ -155,10 +159,11 @@ pub trait DialectConversion {
 //    - All initially convertible operations
 //    - All basic blocks structurally nested under `op`
 // 2. Convert the arguments of every collected block.
-// 3. Repeatedly pop from the front; only entries still marked `Queued` are
-//    processed.
-// 4. For each op, check operand defining ops. If defs are still pending,
-//    re-enqueue this op and those defs to the front so defs are handled first.
+// 3. Repeatedly pop from the front; only entries still marked `Queued`
+//    are processed.
+// 4. For each op, check operand defining ops. If (non-graph region) defs
+//    are pending, re-enqueue this op and those defs to the front, so that
+//    defs are handled first.
 // 5. Actually call the conversion pattern's `rewrite` callback.
 // 6. Post rewrite, process recorder events:
 //    - mark erased (during this batch) ops and blocks,
@@ -426,8 +431,11 @@ pub fn apply_dialect_conversion<C: DialectConversion>(
             for operand in &operands {
                 // Block-argument operands should already be converted.
                 if let DefiningEntity::Op(def_op) = operand.defining_entity() {
-                    assert_ne!(def_op, op, "Operation cannot depend on its own result");
-                    if self.op_eligible_for_processing(ctx, def_op) {
+                    let def_is_in_graph_region = def_op
+                        .deref(ctx)
+                        .get_parent_region(ctx)
+                        .is_some_and(|region| !region.deref(ctx).has_ssa_dominance(ctx));
+                    if !def_is_in_graph_region && self.op_eligible_for_processing(ctx, def_op) {
                         pending_defs.push(def_op);
                     }
                 }
