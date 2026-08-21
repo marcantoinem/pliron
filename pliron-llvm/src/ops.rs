@@ -68,8 +68,8 @@ use crate::{
         AlignableOpInterface, BinArithOp, CastOpInterface, CastOpWithNNegInterface, FastMathFlags,
         FloatBinArithOp, FloatBinArithOpWithFastMathFlags, IntBinArithOp,
         IntBinArithOpWithOverflowFlag, IsDeclaration, LlvmSymbolName, NNegFlag,
-        NonTemporalOpInterface, PointerTypeResult,
-        ScalarOrVectorOpd, ScalarOrVectorOpdImpls, ScalarOrVectorRes, ScalarOrVectorResImpls,
+        NonTemporalOpInterface, PointerTypeResult, ScalarOrVectorOpd, ScalarOrVectorOpdImpls,
+        ScalarOrVectorRes, ScalarOrVectorResImpls,
     },
     ops::{
         func_op_attr_names::ATTR_KEY_LLVM_FUNC_TYPE,

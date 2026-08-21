@@ -48,29 +48,27 @@ use llvm_sys::{
         LLVMGetIncomingValue, LLVMGetIndices, LLVMGetInitializer, LLVMGetInsertBlock,
         LLVMGetInstructionOpcode, LLVMGetInstructionParent, LLVMGetIntTypeWidth,
         LLVMGetIntrinsicDeclaration, LLVMGetLastFunction, LLVMGetLastGlobal, LLVMGetLinkage,
-        LLVMGetMaskValue, LLVMGetModuleIdentifier, LLVMGetNNeg, LLVMGetNSW, LLVMGetNUW,
-        LLVMGetNamedFunction, LLVMGetNamedGlobal, LLVMGetNextBasicBlock, LLVMGetNextFunction,
-        LLVMGetNextGlobal, LLVMGetNextInstruction, LLVMGetNextParam, LLVMGetNumArgOperands,
-        LLVMGetNumIndices, LLVMGetNumMaskElements, LLVMGetNumOperands, LLVMGetOperand,
-        LLVMGetParam, LLVMGetParamTypes, LLVMGetPointerAddressSpace, LLVMGetPoison,
+        LLVMGetMDKindIDInContext, LLVMGetMaskValue, LLVMGetModuleIdentifier, LLVMGetNNeg,
+        LLVMGetNSW, LLVMGetNUW, LLVMGetNamedFunction, LLVMGetNamedGlobal, LLVMGetNextBasicBlock,
+        LLVMGetNextFunction, LLVMGetNextGlobal, LLVMGetNextInstruction, LLVMGetNextParam,
+        LLVMGetNumArgOperands, LLVMGetNumIndices, LLVMGetNumMaskElements, LLVMGetNumOperands,
+        LLVMGetOperand, LLVMGetParam, LLVMGetParamTypes, LLVMGetPointerAddressSpace, LLVMGetPoison,
         LLVMGetPreviousBasicBlock, LLVMGetPreviousFunction, LLVMGetPreviousGlobal,
         LLVMGetPreviousInstruction, LLVMGetPreviousParam, LLVMGetReturnType,
         LLVMGetStructElementTypes, LLVMGetStructName, LLVMGetSwitchCaseValue, LLVMGetTypeKind,
-        LLVMGetMDKindIDInContext, LLVMGetUndef, LLVMGetUndefMaskElem, LLVMGetValueKind,
-        LLVMGetValueName2, LLVMGetVectorSize,
+        LLVMGetUndef, LLVMGetUndefMaskElem, LLVMGetValueKind, LLVMGetValueName2, LLVMGetVectorSize,
         LLVMGlobalGetValueType, LLVMHalfTypeInContext, LLVMInstructionEraseFromParent,
         LLVMIntTypeInContext, LLVMIntrinsicIsOverloaded, LLVMIsAFunction, LLVMIsATerminatorInst,
         LLVMIsAUser, LLVMIsConstantString, LLVMIsDeclaration, LLVMIsFunctionVarArg,
         LLVMIsOpaqueStruct, LLVMIsPackedStruct, LLVMLookupIntrinsicID, LLVMMDNodeInContext2,
-        LLVMMetadataAsValue,
-        LLVMModuleCreateWithNameInContext, LLVMPointerTypeInContext, LLVMPositionBuilderAtEnd,
-        LLVMPositionBuilderBefore, LLVMPrintModuleToFile, LLVMPrintModuleToString,
-        LLVMPrintTypeToString, LLVMPrintValueToString, LLVMReplaceAllUsesWith,
-        LLVMScalableVectorType, LLVMSetAlignment, LLVMSetFastMathFlags, LLVMSetInitializer,
-        LLVMSetLinkage, LLVMSetMetadata, LLVMSetNNeg, LLVMStructCreateNamed, LLVMStructSetBody,
-        LLVMStructTypeInContext, LLVMTypeIsSized, LLVMTypeOf, LLVMValueAsBasicBlock,
-        LLVMValueAsMetadata,
-        LLVMValueIsBasicBlock, LLVMVectorType, LLVMVoidTypeInContext,
+        LLVMMetadataAsValue, LLVMModuleCreateWithNameInContext, LLVMPointerTypeInContext,
+        LLVMPositionBuilderAtEnd, LLVMPositionBuilderBefore, LLVMPrintModuleToFile,
+        LLVMPrintModuleToString, LLVMPrintTypeToString, LLVMPrintValueToString,
+        LLVMReplaceAllUsesWith, LLVMScalableVectorType, LLVMSetAlignment, LLVMSetFastMathFlags,
+        LLVMSetInitializer, LLVMSetLinkage, LLVMSetMetadata, LLVMSetNNeg, LLVMStructCreateNamed,
+        LLVMStructSetBody, LLVMStructTypeInContext, LLVMTypeIsSized, LLVMTypeOf,
+        LLVMValueAsBasicBlock, LLVMValueAsMetadata, LLVMValueIsBasicBlock, LLVMVectorType,
+        LLVMVoidTypeInContext,
     },
     error::{LLVMDisposeErrorMessage, LLVMErrorRef, LLVMGetErrorMessage},
     prelude::{
@@ -1125,11 +1123,7 @@ pub fn llvm_set_non_temporal(context: &LLVMContext, val: LLVMValue) {
             KIND.len() as u32,
         );
         let mut operands = [LLVMValueAsMetadata(one.into())];
-        let node = LLVMMDNodeInContext2(
-            context.inner_ref(),
-            operands.as_mut_ptr(),
-            operands.len(),
-        );
+        let node = LLVMMDNodeInContext2(context.inner_ref(), operands.as_mut_ptr(), operands.len());
         let node = LLVMMetadataAsValue(context.inner_ref(), node);
         LLVMSetMetadata(val.into(), kind_id, node);
     }
