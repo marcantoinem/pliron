@@ -18,7 +18,7 @@ use pliron::{
     basic_block::BasicBlock,
     builtin::{
         attr_interfaces::{FloatAttr, TypedAttrInterface},
-        attributes::{BoolAttr, IdentifierAttr, IntegerAttr, StringAttr, TypeAttr},
+        attributes::{BoolAttr, IdentifierAttr, IntegerAttr, StringAttr, TypeAttr, UnitAttr},
         op_interfaces::{
             self, ATTR_KEY_SYM_NAME, AtMostNRegionsInterface, AtMostOneRegionInterface,
             BranchOpInterface, CallOpCallable, CallOpInterface, IsTerminatorInterface,
@@ -67,7 +67,8 @@ use crate::{
     op_interfaces::{
         AlignableOpInterface, BinArithOp, CastOpInterface, CastOpWithNNegInterface, FastMathFlags,
         FloatBinArithOp, FloatBinArithOpWithFastMathFlags, IntBinArithOp,
-        IntBinArithOpWithOverflowFlag, IsDeclaration, LlvmSymbolName, NNegFlag, PointerTypeResult,
+        IntBinArithOpWithOverflowFlag, IsDeclaration, LlvmSymbolName, NNegFlag,
+        NonTemporalOpInterface, PointerTypeResult,
         ScalarOrVectorOpd, ScalarOrVectorOpdImpls, ScalarOrVectorRes, ScalarOrVectorResImpls,
     },
     ops::{
@@ -1679,10 +1680,11 @@ pub enum StoreOpVerifyErr {
 /// | `value` | Sized type |
 #[pliron_op(
     name = "llvm.store",
-    format = "`*` $1 ` <- ` $0 ` ` opt_attr($llvm_alignment, $AlignmentAttr, label($align), delimiters(`[`, `]`))",
+    format = "`*` $1 ` <- ` $0 ` ` opt_attr($llvm_alignment, $AlignmentAttr, label($align), delimiters(`[`, `]`)) opt_attr($llvm_non_temporal, $UnitAttr, label($nontemporal))",
     interfaces = [
         NResultsInterface<0>,
         AlignableOpInterface,
+        NonTemporalOpInterface,
         NOpdsInterface<2>
     ],
     operands = (value, address: PointerType),

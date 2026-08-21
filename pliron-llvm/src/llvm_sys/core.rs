@@ -56,17 +56,20 @@ use llvm_sys::{
         LLVMGetPreviousBasicBlock, LLVMGetPreviousFunction, LLVMGetPreviousGlobal,
         LLVMGetPreviousInstruction, LLVMGetPreviousParam, LLVMGetReturnType,
         LLVMGetStructElementTypes, LLVMGetStructName, LLVMGetSwitchCaseValue, LLVMGetTypeKind,
-        LLVMGetUndef, LLVMGetUndefMaskElem, LLVMGetValueKind, LLVMGetValueName2, LLVMGetVectorSize,
+        LLVMGetMDKindIDInContext, LLVMGetUndef, LLVMGetUndefMaskElem, LLVMGetValueKind,
+        LLVMGetValueName2, LLVMGetVectorSize,
         LLVMGlobalGetValueType, LLVMHalfTypeInContext, LLVMInstructionEraseFromParent,
         LLVMIntTypeInContext, LLVMIntrinsicIsOverloaded, LLVMIsAFunction, LLVMIsATerminatorInst,
         LLVMIsAUser, LLVMIsConstantString, LLVMIsDeclaration, LLVMIsFunctionVarArg,
-        LLVMIsOpaqueStruct, LLVMIsPackedStruct, LLVMLookupIntrinsicID,
+        LLVMIsOpaqueStruct, LLVMIsPackedStruct, LLVMLookupIntrinsicID, LLVMMDNodeInContext2,
+        LLVMMetadataAsValue,
         LLVMModuleCreateWithNameInContext, LLVMPointerTypeInContext, LLVMPositionBuilderAtEnd,
         LLVMPositionBuilderBefore, LLVMPrintModuleToFile, LLVMPrintModuleToString,
         LLVMPrintTypeToString, LLVMPrintValueToString, LLVMReplaceAllUsesWith,
         LLVMScalableVectorType, LLVMSetAlignment, LLVMSetFastMathFlags, LLVMSetInitializer,
-        LLVMSetLinkage, LLVMSetNNeg, LLVMStructCreateNamed, LLVMStructSetBody,
+        LLVMSetLinkage, LLVMSetMetadata, LLVMSetNNeg, LLVMStructCreateNamed, LLVMStructSetBody,
         LLVMStructTypeInContext, LLVMTypeIsSized, LLVMTypeOf, LLVMValueAsBasicBlock,
+        LLVMValueAsMetadata,
         LLVMValueIsBasicBlock, LLVMVectorType, LLVMVoidTypeInContext,
     },
     error::{LLVMDisposeErrorMessage, LLVMErrorRef, LLVMGetErrorMessage},
@@ -1107,6 +1110,29 @@ pub fn llvm_set_alignment(val: LLVMValue, align: u32) {
             || llvm_is_a::store_inst(val)
     );
     unsafe { LLVMSetAlignment(val.into(), align) }
+}
+
+/// Attach LLVM's `!nontemporal` metadata to a load or store instruction.
+pub fn llvm_set_non_temporal(context: &LLVMContext, val: LLVMValue) {
+    assert!(llvm_is_a::load_inst(val) || llvm_is_a::store_inst(val));
+    const KIND: &str = "nontemporal";
+    // The metadata node is `!{i32 1}`, as LLVM expects for the `!nontemporal` hint.
+    let one = llvm_const_int(llvm_int_type_in_context(context, 32), 1, false);
+    unsafe {
+        let kind_id = LLVMGetMDKindIDInContext(
+            context.inner_ref(),
+            to_c_str(KIND).as_ptr(),
+            KIND.len() as u32,
+        );
+        let mut operands = [LLVMValueAsMetadata(one.into())];
+        let node = LLVMMDNodeInContext2(
+            context.inner_ref(),
+            operands.as_mut_ptr(),
+            operands.len(),
+        );
+        let node = LLVMMetadataAsValue(context.inner_ref(), node);
+        LLVMSetMetadata(val.into(), kind_id, node);
+    }
 }
 
 /// LLVMGetNumMaskElements
